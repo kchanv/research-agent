@@ -68,7 +68,7 @@ app.post('/webhook', async (req, res) => {
     }
 
     // Build OpenAI prompt
-    const prompt = `You are a pre-call research assistant for a digital marketing agency. Generate a concise pre-call brief.
+    const prompt = `You are a pre-call research assistant for a digital marketing agency that sells paid advertising and lead generation services to home service contractors (remodelers, roofers, etc.).
 
 PROSPECT INFO:
 Name: ${name}
@@ -82,17 +82,41 @@ Website: ${website || 'None provided'}
 WEBSITE CONTENT (first 3000 chars):
 ${websiteContent}
 
-Write a brief with exactly these 3 sections:
-1. PRE-CALL BRIEF — Start with a header line: "📋 PRE-CALL BRIEF" then "👤 ${name} | ${company}" then "💰 Budget: ${budget}"
-2. WEBSITE SUMMARY — 2-3 sentences about their business based on the website
-3. CALL ANGLE — 2-3 specific, actionable talking points tailored to this prospect
+Write a detailed pre-call brief with EXACTLY these sections in order:
 
-Plain text only. No bullet symbols except dashes. Keep it tight and useful.`;
+📋 PRE-CALL BRIEF
+👤 ${name} | ${company}
+💰 Budget: ${budget}
+
+BUSINESS MATURITY
+- Estimate how long they've been in business based on website signals (domain age clues, copyright year, "X years experience" mentions, etc.)
+- Solo operator or team? (look for "our team", staff photos, multiple roles mentioned)
+- Service area size (local city, regional, statewide?)
+- Estimated annual revenue range based on company size signals (solo = $200k-$500k, small team = $500k-$2M, established = $2M+)
+
+CURRENT MARKETING ASSESSMENT
+- Do they appear to be running ads? (look for Facebook pixel, Google tag, ad-related scripts in the page)
+- Reviews/reputation signals (mention if Houzz, Angi, BBB, Google reviews are referenced)
+- How strong is their online presence? (professional site vs basic vs none)
+- What is clearly missing from their marketing?
+
+CALL ANGLE
+- 2-3 specific talking points tailored to THIS prospect based on their gaps
+- What pain point to lead with based on their situation
+
+QUESTIONS TO ASK
+- 3 specific discovery questions tailored to their business based on what you found
+
+RED/GREEN FLAGS
+- 🟢 Green flags (signals they're a good fit / ready to invest)
+- 🔴 Red flags (signals to watch out for)
+
+Plain text only. Be specific and direct. No generic filler.`;
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 600,
+      max_tokens: 1000,
     });
 
     const brief = completion.choices[0].message.content;

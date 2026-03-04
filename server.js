@@ -114,9 +114,13 @@ app.post('/webhook', async (req, res) => {
     const data = req.body;
     console.log('Received webhook:', JSON.stringify(data, null, 2));
 
-    // iClosed nests data under invitee — fall back to top-level for flexibility
+    // iClosed nests contact info under invitee, but questions_and_responses may be top-level
     const invitee = data.invitee || data;
-    const qa = invitee.questions_and_responses || invitee.questions_and_answers || {};
+    const qa = data.questions_and_responses
+      || data.questions_and_answers
+      || invitee.questions_and_responses
+      || invitee.questions_and_answers
+      || {};
 
     // iClosed question order: 1=email, 2=phone, 3=full name, 4=business, 5=website, 6=budget, 7=revenue
     const name = invitee.name || qa['3_response'] || qa['Full Name'] || data.name || 'Unknown';

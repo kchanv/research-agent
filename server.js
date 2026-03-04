@@ -5,6 +5,7 @@ const TelegramBot = require('node-telegram-bot-api');
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -112,7 +113,12 @@ app.post('/webhook', async (req, res) => {
 
   try {
     const data = req.body;
-    console.log('Received webhook:', JSON.stringify(data, null, 2));
+    console.log('=== WEBHOOK RECEIVED ===');
+    console.log('Body type:', typeof data);
+    console.log('Top-level keys:', Object.keys(data || {}));
+    console.log('Has invitee:', !!data.invitee);
+    console.log('Has questions_and_responses:', !!data.questions_and_responses);
+    console.log('Full body:', JSON.stringify(data, null, 2));
 
     // iClosed nests contact info under invitee, but questions_and_responses may be top-level
     const invitee = data.invitee || data;

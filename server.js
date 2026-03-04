@@ -69,20 +69,17 @@ async function searchFacebookAds(company) {
   }
 }
 
-// ─── Shared: generate pre-call brief ────────────────────────────────────────
+// ─── Shared: generate pre-call brief ─────────────────────────────────────────
 
 async function generateBrief({ name, company, email = '', phone = '', appointmentTime = '', budget = 'Not provided', revenue = '', website = '' }) {
   if (website && !website.startsWith('http')) website = 'https://' + website;
 
-  // Run all data fetches in parallel
   const [websiteResult, googleResult, fbResult] = await Promise.allSettled([
-    // Website scrape
     website ? axios.get(website, { timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0' } }) : Promise.resolve(null),
     searchGoogle(company),
     searchFacebookAds(company),
   ]);
 
-  // Website content + pixel detection
   let websiteContent = 'No website provided.';
   let adSignals = 'Could not check (no website).';
   if (websiteResult.status === 'fulfilled' && websiteResult.value) {
@@ -103,9 +100,8 @@ async function generateBrief({ name, company, email = '', phone = '', appointmen
     adSignals = `Could not check: ${websiteResult.reason?.message}`;
   }
 
-  // Google data summary
   const google = googleResult.status === 'fulfilled' ? googleResult.value : null;
-  let googleSummary = 'Not available (Serper not configured).';
+  let googleSummary = 'Not available.';
   if (google) {
     const rating = google.localRating || google.rating;
     const reviews = google.localReviews || google.reviews;
@@ -113,15 +109,14 @@ async function generateBrief({ name, company, email = '', phone = '', appointmen
     if (rating) parts.push(`${rating}★ on Google (${reviews || '?'} reviews)`);
     if (google.inLocalPack) parts.push('appears in Google local 3-pack');
     else parts.push('NOT in Google local 3-pack');
-    googleSummary = parts.length > 0 ? parts.join(' — ') : 'Found in search but no rating data';
+    googleSummary = parts.join(' — ') || 'Found in search but no rating data';
   }
 
-  // Facebook Ads summary
   const fb = fbResult.status === 'fulfilled' ? fbResult.value : null;
-  let fbSummary = 'Not available (Facebook token not configured or missing ads_read permission).';
+  let fbSummary = 'Not available (token not configured or missing ads_read permission).';
   if (fb) {
     if (fb.activeCount === 0) {
-      fbSummary = 'No active Meta (Facebook/Instagram) ads found for this company name.';
+      fbSummary = 'No active Meta (Facebook/Instagram) ads found.';
     } else {
       fbSummary = `${fb.activeCount} active Meta ad(s) found`;
       if (fb.pages.length) fbSummary += ` on page(s): ${fb.pages.join(', ')}`;
@@ -161,28 +156,28 @@ Write a detailed pre-call brief with EXACTLY these sections in order:
 💰 Budget: ${budget} | Revenue: ${revenue || 'Unknown'}
 
 BUSINESS MATURITY
-- Estimate how long they've been in business based on website signals (domain age clues, copyright year, "X years experience" mentions, etc.)
-- Solo operator or team? (look for "our team", staff photos, multiple roles mentioned)
-- Service area size (local city, regional, statewide?)
-- Estimated annual revenue range based on company size signals (solo = $200k-$500k, small team = $500k-$2M, established = $2M+)
+- Estimate how long they've been in business based on website signals
+- Solo operator or team?
+- Service area size
+- Estimated annual revenue range
 
 CURRENT MARKETING ASSESSMENT
 - Website pixel tracking: state exactly what was found
-- Meta ads: state exactly what the Facebook Ads Library returned — active ads, since when, sample copy if available
-- Google presence: state their rating, review count, and whether they're in the local 3-pack
+- Meta ads: state exactly what the Facebook Ads Library returned
+- Google presence: rating, review count, local 3-pack status
 - Overall online presence strength
-- What is clearly missing from their marketing?
+- What is clearly missing?
 
 CALL ANGLE
-- 2-3 specific talking points tailored to THIS prospect based on their gaps
-- What pain point to lead with based on their situation
+- 2-3 specific talking points tailored to this prospect's gaps
+- What pain point to lead with
 
 QUESTIONS TO ASK
-- 3 specific discovery questions tailored to their business based on what you found
+- 3 specific discovery questions based on what you found
 
 RED/GREEN FLAGS
-- 🟢 Green flags (signals they're a good fit / ready to invest)
-- 🔴 Red flags (signals to watch out for)
+- 🟢 Green flags
+- 🔴 Red flags
 
 Plain text only. Be specific and direct. No generic filler.`;
 
@@ -195,13 +190,12 @@ Plain text only. Be specific and direct. No generic filler.`;
   return completion.choices[0].message.content;
 }
 
-// ─── iClosed webhook ─────────────────────────────────────────────────────────
+// ─── iClosed webhook ──────────────────────────────────────────────────────────
 
-app.get('/', (req, res) => res.send('Research Agent is running.'));
+app.get('/', (req, res) => res.send('FlowQualify Agent Server running.'));
 
 app.post('/webhook', async (req, res) => {
   res.json({ received: true });
-
   try {
     const raw = req.body;
     const data = Array.isArray(raw) ? raw[0] : raw;
@@ -227,61 +221,186 @@ app.post('/webhook', async (req, res) => {
       text: brief,
     });
 
-    console.log('Brief sent to Telegram successfully.');
+    console.log('Brief sent to Telegram.');
   } catch (error) {
-    console.error('Error processing webhook:', error.message);
+    console.error('Webhook error:', error.message);
   }
 });
 
-// ─── Telegram bot (interactive commands) ─────────────────────────────────────
+// ─── Research Bot (FlowQualify Research) ─────────────────────────────────────
 
-const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
+const researchBot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
+researchBot.on('polling_error', (err) => console.error('Research bot polling error:', err.message));
 
-bot.on('polling_error', (err) => console.error('Polling error:', err.message));
-
-bot.onText(/\/(start|help)/, (msg) => {
-  bot.sendMessage(
-    msg.chat.id,
-    `👋 FlowQualify Research Agent\n\nTo research a prospect manually, send:\n\nresearch [name], [company], [website]\n\nExamples:\nresearch John Smith, Apex Remodeling, apexremodeling.com\nresearch John Smith, Apex Remodeling`
+researchBot.onText(/\/(start|help)/, (msg) => {
+  researchBot.sendMessage(msg.chat.id,
+    `👋 FlowQualify Research Agent\n\nSend:\nresearch [name], [company], [website]\n\nExample:\nresearch John Smith, Apex Remodeling, apexremodeling.com`
   );
 });
 
-bot.on('message', async (msg) => {
+researchBot.on('message', async (msg) => {
   const text = (msg.text || '').trim();
   const lower = text.toLowerCase();
-
   if (!lower.startsWith('research ') && lower !== 'research' && !lower.startsWith('/research')) return;
 
   const chatId = msg.chat.id;
-  await bot.sendMessage(chatId, '🔍 On it — give me about 30 seconds...');
+  await researchBot.sendMessage(chatId, '🔍 On it — give me about 30 seconds...');
 
   try {
     const extraction = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
-      messages: [{
-        role: 'user',
-        content: `Extract the prospect's name, company name, and website URL from this message. Return valid JSON only with keys: name, company, website. If a field is missing use an empty string.\n\nMessage: ${text}`,
-      }],
+      messages: [{ role: 'user', content: `Extract name, company, website from this message. Return JSON with keys: name, company, website. Empty string if missing.\n\nMessage: ${text}` }],
       max_tokens: 150,
       response_format: { type: 'json_object' },
     });
-
     const { name, company, website } = JSON.parse(extraction.choices[0].message.content);
-
     if (!name && !company) {
-      await bot.sendMessage(chatId, "❌ Couldn't parse a name or company. Try:\nresearch John Smith, Apex Remodeling, apexremodeling.com");
+      await researchBot.sendMessage(chatId, "❌ Couldn't parse. Try:\nresearch John Smith, Apex Remodeling, apexremodeling.com");
       return;
     }
-
     const brief = await generateBrief({ name, company, website });
-    await bot.sendMessage(chatId, brief);
+    await researchBot.sendMessage(chatId, brief);
   } catch (e) {
-    console.error('Bot research error:', e.message);
-    await bot.sendMessage(chatId, `❌ Something went wrong: ${e.message}`);
+    console.error('Research bot error:', e.message);
+    await researchBot.sendMessage(chatId, `❌ Error: ${e.message}`);
+  }
+});
+
+// ─── Monica (FlowQualify Assistant) ──────────────────────────────────────────
+
+const MONICA_SOUL = `You are Monica, Chief of Staff at FlowQualify.
+
+WHO YOU ARE:
+- Right hand to Kelvin Chan, founder of FlowQualify
+- You are not a generic assistant — you are embedded in this business
+- Blue-collar respect, white-collar intelligence
+- You have opinions. You flag problems before being asked. You are resourceful before asking for help.
+
+HOW YOU COMMUNICATE:
+- Direct and concise. No fluff, no filler, no unnecessary preamble.
+- Match Kelvin's energy — he's rapid-fire, so you are too
+- Short answers unless depth is needed
+- Never say "leads" — always "appointments" or "booked consultations"
+- Never call FlowQualify a "lead gen agency" — it's a "system" or "AI qualification system"
+- Never say "Great question!" or any sycophantic openers
+
+YOUR RESPONSIBILITIES:
+- Help Kelvin run and grow FlowQualify
+- Track agent status and flag what's broken or missing
+- Assist with sales prep, client management, ad performance awareness
+- Coordinate across the agent stack
+- Keep Kelvin focused on what matters
+
+LANGUAGE RULES:
+✅ "appointments" / "booked consultations"
+✅ FlowQualify is a "system"
+✅ Clients are "contractors"
+❌ Never "leads"
+❌ Never "lead gen agency"
+❌ Never "Great!" / "Absolutely!" / "Of course!"`;
+
+const MONICA_MEMORY = `CURRENT BUSINESS STATE:
+
+The Founder:
+- Kelvin Chan, Vaughan Ontario, Telegram @KC4537
+- Direct communicator. Short answers. Hates fluff. Rapid-fire questions.
+- Doing all sales calls himself right now
+
+FlowQualify:
+- AI-powered qualification + appointment booking for kitchen & bath remodelers ($500K–$3M revenue)
+- How it works: Meta Message Ads → Messenger → AI qualifies homeowner in <60s → booking link → Estimator Brief → CRM
+- NOT a lead gen agency — it's a system
+- Pricing: first month free (contractor pays ad spend only), then $3K–4K/month retainer
+- Year 1 target: 15–20 clients by month 12
+- Active clients: None yet — Kelvin in sales mode
+
+Agent Stack:
+| Agent               | Job                      | Status     |
+| ------------------- | ------------------------ | ---------- |
+| Monica              | Chief of Staff           | ✅ Live    |
+| Prospect Research   | Pre-call briefs          | ✅ Live    |
+| Ad Monitor          | Daily Meta checks        | ⏳ Pending |
+| Report Generator    | Weekly summaries         | ⏳ Pending |
+| Intake Processor    | Onboarding automation    | ⏳ Pending |
+| Campaign Builder    | Ad creation              | ⏳ Pending |
+| Creative Generator  | Ad copy                  | ⏳ Pending |
+| Conversation Auditor| Qualifier QA             | ⏳ Pending |
+| Retention Signal    | Churn detection          | ⏳ Pending |
+
+Tech Stack:
+- Node.js + Railway (agent server)
+- OpenAI GPT-4o (research briefs)
+- Telegram (primary interface)
+- iClosed (booking + webhooks)
+- Meta Ads (front-end acquisition)
+- Serper.dev (Google search data)
+- Facebook Ads Library API (competitor ad intel)
+
+Alert Thresholds (once clients are live):
+- Show rate <70%
+- CPA >2x target for 48hrs
+- Ad frequency >3.5
+- Client not in CRM for 7+ days
+- AI gave wrong info in Messenger`;
+
+// Conversation history per chat (resets on server restart)
+const monicaHistory = new Map();
+
+const monicaBot = new TelegramBot(process.env.ASSISTANT_BOT_TOKEN, { polling: true });
+monicaBot.on('polling_error', (err) => console.error('Monica polling error:', err.message));
+
+monicaBot.on('message', async (msg) => {
+  if (!msg.text) return;
+  const chatId = msg.chat.id;
+  const text = msg.text.trim();
+
+  // /remember command — append to dynamic memory for this session
+  if (text.toLowerCase().startsWith('/remember ')) {
+    const fact = text.slice(10).trim();
+    const current = monicaHistory.get(`memory_${chatId}`) || '';
+    monicaHistory.set(`memory_${chatId}`, current + `\n- ${fact}`);
+    await monicaBot.sendMessage(chatId, `Got it. Noted for this session:\n"${fact}"`);
+    return;
+  }
+
+  // /status command — show agent stack
+  if (text.toLowerCase() === '/status') {
+    await monicaBot.sendMessage(chatId,
+      `Agent Stack:\n✅ Monica — live\n✅ Prospect Research — live\n⏳ Ad Monitor — pending\n⏳ Report Generator — pending\n⏳ Intake Processor — pending\n⏳ Campaign Builder — pending`
+    );
+    return;
+  }
+
+  // Build conversation history
+  if (!monicaHistory.has(chatId)) monicaHistory.set(chatId, []);
+  const history = monicaHistory.get(chatId);
+  history.push({ role: 'user', content: text });
+  if (history.length > 30) history.splice(0, history.length - 30);
+
+  // Build system prompt with any session memory updates
+  const sessionMemory = monicaHistory.get(`memory_${chatId}`) || '';
+  const systemPrompt = `${MONICA_SOUL}\n\n${MONICA_MEMORY}${sessionMemory ? `\n\nSESSION NOTES:\n${sessionMemory}` : ''}`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...history,
+      ],
+      max_tokens: 800,
+    });
+
+    const reply = completion.choices[0].message.content;
+    history.push({ role: 'assistant', content: reply });
+    await monicaBot.sendMessage(chatId, reply);
+  } catch (e) {
+    console.error('Monica error:', e.message);
+    await monicaBot.sendMessage(chatId, `Error: ${e.message}`);
   }
 });
 
 // ─── Start server ─────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`Research Agent running on port ${PORT}`));
+app.listen(PORT, () => console.log(`FlowQualify Agent Server running on port ${PORT}`));

@@ -69,6 +69,7 @@ async function searchFacebookAds(company) {
     };
   } catch (e) {
     console.error('Facebook Ads Library error:', e.message);
+    if (e.response?.data) console.error('Facebook API response:', JSON.stringify(e.response.data));
     return null;
   }
 }

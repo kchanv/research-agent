@@ -12,7 +12,7 @@ const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 // ─── Shared: generate pre-call brief ────────────────────────────────────────
 
-async function generateBrief({ name, company, email = '', phone = '', appointmentTime = '', budget = 'Not provided', website = '' }) {
+async function generateBrief({ name, company, email = '', phone = '', appointmentTime = '', budget = 'Not provided', revenue = '', website = '' }) {
   if (website && !website.startsWith('http')) website = 'https://' + website;
 
   let websiteContent = 'No website provided.';
@@ -53,6 +53,7 @@ Email: ${email}
 Phone: ${phone}
 Appointment: ${appointmentTime}
 Budget: ${budget}
+Annual Revenue: ${revenue || 'Not provided'}
 Website: ${website || 'None provided'}
 
 AD TRACKING DETECTED (from raw page source — use this as fact, do not guess):
@@ -65,7 +66,7 @@ Write a detailed pre-call brief with EXACTLY these sections in order:
 
 📋 PRE-CALL BRIEF
 👤 ${name} | ${company}
-💰 Budget: ${budget}
+💰 Budget: ${budget} | Revenue: ${revenue || 'Unknown'}
 
 BUSINESS MATURITY
 - Estimate how long they've been in business based on website signals (domain age clues, copyright year, "X years experience" mentions, etc.)
@@ -113,33 +114,21 @@ app.post('/webhook', async (req, res) => {
     const data = req.body;
     console.log('Received webhook:', JSON.stringify(data, null, 2));
 
-    const name = data.name || data.contact_name || data.full_name || 'Unknown';
-    const email = data.email || '';
-    const phone = data.phone || data.phone_number || '';
-    const appointmentTime = data.start_time_pretty || data.appointment_time || data.start_time || '';
+    // iClosed nests data under invitee — fall back to top-level for flexibility
+    const invitee = data.invitee || data;
+    const qa = invitee.questions_and_responses || invitee.questions_and_answers || {};
 
-    const qa = data.questions_and_responses || data.questions_and_answers || {};
+    // iClosed question order: 1=email, 2=phone, 3=full name, 4=business, 5=website, 6=budget, 7=revenue
+    const name = invitee.name || qa['3_response'] || qa['Full Name'] || data.name || 'Unknown';
+    const email = invitee.email || qa['1_response'] || qa['Email Address'] || '';
+    const phone = invitee.text_reminder_number || qa['2_response'] || qa['Phone Number'] || '';
+    const appointmentTime = data.start_time_pretty || data.appointment_time || data.start_time || invitee.created_at || '';
+    const company = qa['4_response'] || qa['What is the name of your business?'] || data.company || 'Unknown';
+    const website = qa['5_response'] || qa["What is your company's website?"] || data.website || '';
+    const budget = qa['6_response'] || qa['What is your total monthly marketing budget?'] || data.budget || 'Not provided';
+    const revenue = qa['7_response'] || qa['What is your annual revenue?'] || '';
 
-    const company =
-      data.company ||
-      data.business_name ||
-      qa['1_response'] || qa['1_answer'] ||
-      (Array.isArray(qa) && qa[0]?.answer) ||
-      'Unknown';
-
-    const budget =
-      qa['3_response'] || qa['3_answer'] ||
-      (Array.isArray(qa) && qa[2]?.answer) ||
-      data.budget ||
-      'Not provided';
-
-    const website =
-      qa['5_response'] || qa['5_answer'] ||
-      (Array.isArray(qa) && qa[4]?.answer) ||
-      data.website ||
-      '';
-
-    const brief = await generateBrief({ name, company, email, phone, appointmentTime, budget, website });
+    const brief = await generateBrief({ name, company, email, phone, appointmentTime, budget, revenue, website });
     console.log('Generated brief:', brief);
 
     await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {

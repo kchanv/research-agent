@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const OpenAI = require('openai');
 const TelegramBot = require('node-telegram-bot-api');
+const { initDB, getMemory, setMemory, getAllMemory, getConversationHistory, saveMessage, logEvent } = require('./db');
 
 const app = express();
 app.use(express.json());
@@ -10,6 +11,9 @@ app.use(express.urlencoded({ extended: true }));
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
+// Initialize DB tables on startup
+initDB();
 
 // ─── Google search via Serper.dev ────────────────────────────────────────────
 
@@ -221,6 +225,9 @@ app.post('/webhook', async (req, res) => {
       text: brief,
     });
 
+    // Log to DB for future pattern learning
+    await logEvent('research_agent', 'brief_generated', { name, company, website, budget, revenue, appointmentTime });
+
     console.log('Brief sent to Telegram.');
   } catch (error) {
     console.error('Webhook error:', error.message);
@@ -343,9 +350,6 @@ Alert Thresholds (once clients are live):
 - Client not in CRM for 7+ days
 - AI gave wrong info in Messenger`;
 
-// Conversation history per chat (resets on server restart)
-const monicaHistory = new Map();
-
 const monicaBot = new TelegramBot(process.env.ASSISTANT_BOT_TOKEN, { polling: true });
 monicaBot.on('polling_error', (err) => console.error('Monica polling error:', err.message));
 
@@ -354,16 +358,16 @@ monicaBot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text.trim();
 
-  // /remember command — append to dynamic memory for this session
+  // /remember — permanently store a fact in DB
   if (text.toLowerCase().startsWith('/remember ')) {
     const fact = text.slice(10).trim();
-    const current = monicaHistory.get(`memory_${chatId}`) || '';
-    monicaHistory.set(`memory_${chatId}`, current + `\n- ${fact}`);
-    await monicaBot.sendMessage(chatId, `Got it. Noted for this session:\n"${fact}"`);
+    const existing = await getMemory('monica', 'dynamic_notes') || '';
+    await setMemory('monica', 'dynamic_notes', existing + `\n- ${fact}`);
+    await monicaBot.sendMessage(chatId, `Got it. Stored permanently:\n"${fact}"`);
     return;
   }
 
-  // /status command — show agent stack
+  // /status — agent stack overview
   if (text.toLowerCase() === '/status') {
     await monicaBot.sendMessage(chatId,
       `Agent Stack:\n✅ Monica — live\n✅ Prospect Research — live\n⏳ Ad Monitor — pending\n⏳ Report Generator — pending\n⏳ Intake Processor — pending\n⏳ Campaign Builder — pending`
@@ -371,15 +375,28 @@ monicaBot.on('message', async (msg) => {
     return;
   }
 
-  // Build conversation history
-  if (!monicaHistory.has(chatId)) monicaHistory.set(chatId, []);
-  const history = monicaHistory.get(chatId);
-  history.push({ role: 'user', content: text });
-  if (history.length > 30) history.splice(0, history.length - 30);
+  // /memory — show everything Monica has stored
+  if (text.toLowerCase() === '/memory') {
+    const rows = await getAllMemory('monica');
+    if (!rows.length) {
+      await monicaBot.sendMessage(chatId, 'No stored memory yet.');
+      return;
+    }
+    const summary = rows.map(r => `[${r.key}]\n${r.value}`).join('\n\n');
+    await monicaBot.sendMessage(chatId, summary);
+    return;
+  }
 
-  // Build system prompt with any session memory updates
-  const sessionMemory = monicaHistory.get(`memory_${chatId}`) || '';
-  const systemPrompt = `${MONICA_SOUL}\n\n${MONICA_MEMORY}${sessionMemory ? `\n\nSESSION NOTES:\n${sessionMemory}` : ''}`;
+  // Load persistent conversation history from DB
+  const history = await getConversationHistory('monica', chatId);
+
+  // Load any dynamic memory Monica has accumulated
+  const dynamicNotes = await getMemory('monica', 'dynamic_notes') || '';
+  const systemPrompt = `${MONICA_SOUL}\n\n${MONICA_MEMORY}${dynamicNotes ? `\n\nPERMANENT NOTES (learned over time):\n${dynamicNotes}` : ''}`;
+
+  // Save user message to DB
+  await saveMessage('monica', chatId, 'user', text);
+  history.push({ role: 'user', content: text });
 
   try {
     const completion = await openai.chat.completions.create({
@@ -392,7 +409,7 @@ monicaBot.on('message', async (msg) => {
     });
 
     const reply = completion.choices[0].message.content;
-    history.push({ role: 'assistant', content: reply });
+    await saveMessage('monica', chatId, 'assistant', reply);
     await monicaBot.sendMessage(chatId, reply);
   } catch (e) {
     console.error('Monica error:', e.message);

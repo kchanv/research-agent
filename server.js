@@ -16,15 +16,31 @@ async function generateBrief({ name, company, email = '', phone = '', appointmen
   if (website && !website.startsWith('http')) website = 'https://' + website;
 
   let websiteContent = 'No website provided.';
+  let adSignals = 'Could not check (no website).';
   if (website) {
     try {
       const response = await axios.get(website, {
         timeout: 10000,
         headers: { 'User-Agent': 'Mozilla/5.0' },
       });
-      websiteContent = String(response.data).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').substring(0, 3000);
+      const rawHtml = String(response.data);
+
+      // Detect tracking pixels / ad scripts from raw HTML before stripping tags
+      const detected = [];
+      if (/fbq\(|connect\.facebook\.net|facebook\.com\/tr/i.test(rawHtml)) detected.push('Facebook Pixel');
+      if (/googletagmanager\.com\/gtm/i.test(rawHtml)) detected.push('Google Tag Manager');
+      if (/gtag\(|google-analytics\.com|ga\('send'/i.test(rawHtml)) detected.push('Google Analytics / Google Ads');
+      if (/ttq\.|tiktok\.com\/i18n\/pixel/i.test(rawHtml)) detected.push('TikTok Pixel');
+      if (/snaptr\(|sc-static\.net/i.test(rawHtml)) detected.push('Snapchat Pixel');
+      if (/pintrk\(|ct\.pinterest\.com/i.test(rawHtml)) detected.push('Pinterest Ads');
+      adSignals = detected.length > 0
+        ? `CONFIRMED tracking scripts found: ${detected.join(', ')}`
+        : 'No ad tracking pixels detected in page source (likely not running paid ads)';
+
+      websiteContent = rawHtml.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').substring(0, 3000);
     } catch (e) {
       websiteContent = `Could not fetch website: ${e.message}`;
+      adSignals = `Could not check: ${e.message}`;
     }
   }
 
@@ -38,6 +54,9 @@ Phone: ${phone}
 Appointment: ${appointmentTime}
 Budget: ${budget}
 Website: ${website || 'None provided'}
+
+AD TRACKING DETECTED (from raw page source — use this as fact, do not guess):
+${adSignals}
 
 WEBSITE CONTENT (first 3000 chars):
 ${websiteContent}
@@ -55,7 +74,7 @@ BUSINESS MATURITY
 - Estimated annual revenue range based on company size signals (solo = $200k-$500k, small team = $500k-$2M, established = $2M+)
 
 CURRENT MARKETING ASSESSMENT
-- Do they appear to be running ads? (look for Facebook pixel, Google tag, ad-related scripts in the page)
+- Ad activity: use the AD TRACKING DETECTED field above — state exactly what was found or confirmed not found. Do not say "further inspection needed".
 - Reviews/reputation signals (mention if Houzz, Angi, BBB, Google reviews are referenced)
 - How strong is their online presence? (professional site vs basic vs none)
 - What is clearly missing from their marketing?

@@ -112,31 +112,24 @@ app.post('/webhook', async (req, res) => {
   res.json({ received: true });
 
   try {
-    const data = req.body;
-    console.log('=== WEBHOOK RECEIVED ===');
-    console.log('Body type:', typeof data);
-    console.log('Top-level keys:', Object.keys(data || {}));
-    console.log('Has invitee:', !!data.invitee);
-    console.log('Has questions_and_responses:', !!data.questions_and_responses);
-    console.log('Full body:', JSON.stringify(data, null, 2));
+    // iClosed sends payload as an array — grab first element
+    const raw = req.body;
+    const data = Array.isArray(raw) ? raw[0] : raw;
+    console.log('Received webhook, hookType:', data.hookType);
 
-    // iClosed nests contact info under invitee, but questions_and_responses may be top-level
-    const invitee = data.invitee || data;
-    const qa = data.questions_and_responses
-      || data.questions_and_answers
-      || invitee.questions_and_responses
-      || invitee.questions_and_answers
-      || {};
+    const invitee = data.invitee || {};
+    const qa = data.questions_and_responses || {};
+    const event = data.event || {};
 
     // iClosed question order: 1=email, 2=phone, 3=full name, 4=business, 5=website, 6=budget, 7=revenue
-    const name = invitee.name || qa['3_response'] || qa['Full Name'] || data.name || 'Unknown';
-    const email = invitee.email || qa['1_response'] || qa['Email Address'] || '';
-    const phone = invitee.text_reminder_number || qa['2_response'] || qa['Phone Number'] || '';
-    const appointmentTime = data.start_time_pretty || data.appointment_time || data.start_time || invitee.created_at || '';
-    const company = qa['4_response'] || qa['What is the name of your business?'] || data.company || 'Unknown';
-    const website = qa['5_response'] || qa["What is your company's website?"] || data.website || '';
-    const budget = qa['6_response'] || qa['What is your total monthly marketing budget?'] || data.budget || 'Not provided';
-    const revenue = qa['7_response'] || qa['What is your annual revenue?'] || '';
+    const name = invitee.name || qa['3_response'] || 'Unknown';
+    const email = invitee.email || qa['1_response'] || '';
+    const phone = invitee.text_reminder_number || qa['2_response'] || '';
+    const appointmentTime = event.start_time_pretty || event.invitee_start_time_pretty || '';
+    const company = qa['4_response'] || 'Unknown';
+    const website = qa['5_response'] || '';
+    const budget = qa['6_response'] || 'Not provided';
+    const revenue = qa['7_response'] || '';
 
     const brief = await generateBrief({ name, company, email, phone, appointmentTime, budget, revenue, website });
     console.log('Generated brief:', brief);
